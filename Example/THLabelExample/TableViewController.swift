@@ -26,8 +26,7 @@ class TableViewController: UITableViewController {
         cell.customTextLabel?.textColor = UIColor.white;
         cell.customTextLabel?.strokeColor = Constants.kStrokeColor;
         cell.customTextLabel?.strokeSize = Constants.kStrokeSize;
-        cell.customTextLabel?.gradientStartColor = Constants.kGradientStartColor;
-        cell.customTextLabel?.gradientEndColor = Constants.kGradientEndColor;
+        cell.customTextLabel?.gradientColors = [Constants.kGradientStartColor, Constants.kGradientEndColor];
         
         return cell;
     }

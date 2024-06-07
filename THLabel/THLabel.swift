@@ -58,14 +58,13 @@ public struct THLabelFadeTruncatingMode : OptionSet {
     public let rawValue: Int
     public init(rawValue:Int) { self.rawValue = rawValue}
     
-    static let none = THLabelFadeTruncatingMode(rawValue: 0)
+    static let none = THLabelFadeTruncatingMode([])
     static let tail = THLabelFadeTruncatingMode(rawValue: 1 << 0)
     static let head = THLabelFadeTruncatingMode(rawValue: 1 << 1)
     static let headAndTail : THLabelFadeTruncatingMode = [.tail, .head]
 }
 
-open
-class THLabel: UILabel {
+open class THLabel: UILabel {
     
     // MARK: - Accessors and Mutators
     
@@ -90,58 +89,20 @@ class THLabel: UILabel {
     open var strokeColor: UIColor!
     open var strokePosition: THLabelStrokePosition  = THLabelStrokePosition.outside
     
-    open var gradientStartColor: UIColor! {
-        get {
-            return self.gradientColors.count > 0 ? self.gradientColors.first! : nil
-        }
-        set {
-            if newValue == nil {
-                self.gradientColors = []
-            }
-            else if self.gradientColors.count < 2 {
-                self.gradientColors = [newValue, newValue]
-            }
-            else if !self.gradientColors.first!.isEqual(newValue) {
-                var colors = self.gradientColors
-                colors[0] = newValue
-                self.gradientColors = colors
-            }
-        }
-    }
-    
-    open var gradientEndColor: UIColor! {
-        get {
-            return self.gradientColors.count > 0 ? self.gradientColors.last! : nil
-        }
-        set {
-            if newValue == nil {
-                self.gradientColors = []
-            }
-            else if self.gradientColors.count < 2 {
-                self.gradientColors = [newValue, newValue]
-            }
-            else if !self.gradientColors.last!.isEqual(newValue) {
-                var colors = self.gradientColors
-                colors[colors.count - 1] = newValue
-                self.gradientColors = colors
-            }
-        }
-    }
     private var _gradientColors : [UIColor] = []
     open var gradientColors : [UIColor] {
         get {
             return _gradientColors
         }
         set {
-            if _gradientColors != newValue {
-                _gradientColors = newValue
-                self.setNeedsDisplay()
-            }
+            guard _gradientColors != newValue else { return }
+            _gradientColors = newValue
+            self.setNeedsDisplay()
         }
     }
     
-    open var gradientStartPoint: CGPoint    = CGPoint.zero
-    open var gradientEndPoint: CGPoint      = CGPoint.zero
+    open var gradientStartPoint: CGPoint = CGPoint(x: CGFloat(0.0), y: CGFloat(0.2))
+    open var gradientEndPoint: CGPoint = CGPoint(x: CGFloat(1.0), y: CGFloat(0.8))
     
     open var fadeTruncatingMode: THLabelFadeTruncatingMode  = THLabelFadeTruncatingMode.none
     
@@ -151,14 +112,15 @@ class THLabel: UILabel {
             return _textInsets
         }
         set {
-            if !UIEdgeInsetsEqualToEdgeInsets(_textInsets, newValue) {
-                _textInsets = newValue
-                self.setNeedsDisplay()
-            }
+            guard _textInsets != newValue else { return }
+            _textInsets = newValue
+            self.setNeedsDisplay()
         }
     }
     
-    open var isAutomaticallyAdjustTextInsets: Bool = false
+    open var isAutomaticallyAdjustTextInsets: Bool = true
+    
+    private var _textLength: Int { text?.count ?? 0 }
     
     override public init(frame: CGRect) {
         super.init(frame: frame)
@@ -175,9 +137,6 @@ class THLabel: UILabel {
     
     fileprivate func setDefaults() {
         self.clipsToBounds = true
-        self.gradientStartPoint = CGPoint(x: CGFloat(0.5), y: CGFloat(0.2))
-        self.gradientEndPoint = CGPoint(x: CGFloat(0.5), y: CGFloat(0.8))
-        self.isAutomaticallyAdjustTextInsets = true
     }
     
     fileprivate func hasShadow() -> Bool {
@@ -205,15 +164,12 @@ class THLabel: UILabel {
     }
     
     override open var intrinsicContentSize: CGSize {
-        get {
-            if self.text == nil || (self.text == "") {
-                return CGSize.zero
-            }
-            let textRect = self.frameRef(from: CGSize(width: CGFloat(self.preferredMaxLayoutWidth), height: CGFloat.greatestFiniteMagnitude)).CGRect
-            let newWidth = textRect.width + self.textInsets.left + self.textInsets.right
-            let newHeight = textRect.height + self.textInsets.top + self.textInsets.bottom
-            return CGSize(width: CGFloat(ceilf(Float(newWidth))), height: CGFloat(ceilf(Float(newHeight))))
-        }
+        guard let t = text, !t.isEmpty else { return .zero }
+        
+        let textRect = self.frameRef(from: CGSize(width: CGFloat(self.preferredMaxLayoutWidth), height: CGFloat.greatestFiniteMagnitude)).CGRect
+        let newWidth = textRect.width + self.textInsets.left + self.textInsets.right
+        let newHeight = textRect.height + self.textInsets.top + self.textInsets.bottom
+        return CGSize(width: CGFloat(ceilf(Float(newWidth))), height: CGFloat(ceilf(Float(newHeight))))
     }
     
     fileprivate func strokeSizeDependentOnStrokePosition() -> CGFloat {
@@ -230,9 +186,7 @@ class THLabel: UILabel {
     
     override open func draw(_ rect: CGRect) {
         // Don't draw anything, if there is no text.
-        if self.text == nil || (self.text == "") {
-            return
-        }
+        guard let t = text?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return }
         // -------
         // Determine what has to be drawn.
         // -------
@@ -390,15 +344,20 @@ class THLabel: UILabel {
     
     fileprivate func frameRef(from size: CGSize) -> (CTFrame: CTFrame, CGRect: CGRect) {
         // Set up font.
-		let fontRef = CTFontCreateWithFontDescriptor((self.font.fontDescriptor as CTFontDescriptor), self.font.pointSize, nil)
-        var alignment = NSTextAlignmentToCTTextAlignment(self.textAlignment)
+        func getPSS<T>(_ spec: CTParagraphStyleSpecifier, value: inout T) -> CTParagraphStyleSetting {
+            withUnsafeBytes(of: value) { e in
+                CTParagraphStyleSetting(spec: spec, valueSize: MemoryLayout.size(ofValue: value), value: e.baseAddress!)
+            }
+        }
+        let fontRef = CTFontCreateWithFontDescriptor((self.font.fontDescriptor as CTFontDescriptor), self.font.pointSize, nil)
+        var alignment = CTTextAlignment(self.textAlignment)
         var lineBreakMode = CTLineBreakModeFromUILineBreakMode(self.lineBreakMode)
         var lineSpacing = self.lineSpacing
         let paragraphStyleSettings: [CTParagraphStyleSetting] = [
-            CTParagraphStyleSetting(spec: .alignment, valueSize: MemoryLayout.size(ofValue: alignment), value: &alignment),
-            CTParagraphStyleSetting(spec: .lineBreakMode, valueSize: MemoryLayout.size(ofValue: lineBreakMode), value: &lineBreakMode),
-            CTParagraphStyleSetting(spec: .lineSpacingAdjustment, valueSize: MemoryLayout.size(ofValue: lineSpacing), value: &lineSpacing)
-            ]
+            getPSS(.alignment, value: &alignment),
+            getPSS(.lineBreakMode, value: &lineBreakMode),
+            getPSS(.lineSpacingAdjustment, value: &lineSpacing),
+        ]
         
         let paragraphStyleRef = CTParagraphStyleCreate(paragraphStyleSettings, paragraphStyleSettings.count)
         let kernRef = CFNumberCreate(kCFAllocatorDefault, .cgFloatType, &letterSpacing)
@@ -407,7 +366,7 @@ class THLabel: UILabel {
         let values: [CFTypeRef] = [fontRef, paragraphStyleRef, self.textColor.cgColor, kernRef!]
         
         let attributes = NSDictionary(objects: values, forKeys: keys as [NSCopying])
-        let stringRef = (self.text as! CFString)
+        let stringRef = (self.text! as CFString)
         let attributedStringRef = CFAttributedStringCreate(kCFAllocatorDefault, stringRef, attributes as CFDictionary)
         // Set up frame.
         let framesetterRef = CTFramesetterCreateWithAttributedString(attributedStringRef!)
@@ -419,7 +378,7 @@ class THLabel: UILabel {
         let textRect = self.textRect(fromContentRect: contentRect, framesetterRef: framesetterRef)
         let pathRef = CGMutablePath()
         pathRef.addRect(textRect, transform: .identity)
-        let frameRef = CTFramesetterCreateFrame(framesetterRef, CFRangeMake(0, (self.text?.characters.count)!), pathRef, nil)
+        let frameRef = CTFramesetterCreateFrame(framesetterRef, CFRangeMake(0, self._textLength), pathRef, nil)
         
         return (frameRef, textRect)
     }
@@ -435,9 +394,9 @@ class THLabel: UILabel {
     }
     
     fileprivate func textRect(fromContentRect contentRect: CGRect, framesetterRef: CTFramesetter) -> CGRect {
-        var suggestedTextRectSize = CTFramesetterSuggestFrameSizeWithConstraints(framesetterRef, CFRangeMake(0, (self.text?.characters.count)!), nil, contentRect.size, nil)
+        var suggestedTextRectSize = CTFramesetterSuggestFrameSizeWithConstraints(framesetterRef, CFRangeMake(0, self._textLength), nil, contentRect.size, nil)
         if suggestedTextRectSize.equalTo(CGSize.zero) {
-            suggestedTextRectSize = CTFramesetterSuggestFrameSizeWithConstraints(framesetterRef, CFRangeMake(0, (self.text?.characters.count)!), nil, CGSize(width: CGFloat(CGFloat.greatestFiniteMagnitude), height: CGFloat(CGFloat.greatestFiniteMagnitude)), nil)
+            suggestedTextRectSize = CTFramesetterSuggestFrameSizeWithConstraints(framesetterRef, CFRangeMake(0, self._textLength), nil, CGSize(width: CGFloat(CGFloat.greatestFiniteMagnitude), height: CGFloat(CGFloat.greatestFiniteMagnitude)), nil)
         }
         var textRect = CGRect(x: CGFloat(0.0), y: CGFloat(0.0), width: CGFloat(ceilf(Float(suggestedTextRectSize.width))), height: CGFloat(ceilf(Float(suggestedTextRectSize.height))))
         // Horizontal alignment.
@@ -470,9 +429,9 @@ class THLabel: UILabel {
         if hasStroke {
             switch self.strokePosition {
             case .outside:
-                edgeInsets = UIEdgeInsetsMake(self.strokeSize, self.strokeSize, self.strokeSize, self.strokeSize)
+                edgeInsets = UIEdgeInsets(top: self.strokeSize, left: self.strokeSize, bottom: self.strokeSize, right: self.strokeSize)
             case .inside:
-                edgeInsets = UIEdgeInsetsMake(self.strokeSize / 2.0, self.strokeSize / 2.0, self.strokeSize / 2.0, self.strokeSize / 2.0)
+                edgeInsets = UIEdgeInsets(top: self.strokeSize / 2.0, left: self.strokeSize / 2.0, bottom: self.strokeSize / 2.0, right: self.strokeSize / 2.0)
             default:
                 break
             }
@@ -490,80 +449,65 @@ class THLabel: UILabel {
     // MARK: - Image Functions
     
     fileprivate func inverseMask(fromAlphaMask alphaMask: CGImage, with rect: CGRect) -> CGImage {
-        // Create context.
-        UIGraphicsBeginImageContextWithOptions(rect.size, false, 0.0)
-        let context = UIGraphicsGetCurrentContext()!
-        // Fill rect, clip to alpha mask and clear.
-        UIColor.white.setFill()
-        UIRectFill(rect)
-        context.clip(to: rect, mask: alphaMask)
-        context.clear(rect)
-        // Return image.
-        let image = context.makeImage()
-        UIGraphicsEndImageContext()
-        return image!
+        return UIGraphicsImageRenderer(size: rect.size, format: .preferred()).image(actions: { ctx in
+            let context = ctx.cgContext
+            // Fill rect, clip to alpha mask and clear.
+            UIColor.white.setFill()
+            UIRectFill(rect)
+            context.clip(to: rect, mask: alphaMask)
+            context.clear(rect)
+        }).cgImage!
     }
     
     fileprivate func strokeImage(with rect: CGRect, frameRef: CTFrame, strokeSize: CGFloat, stroke strokeColor: UIColor) -> CGImage {
-        // Create context.
-        UIGraphicsBeginImageContextWithOptions(rect.size, false, 0.0)
-        let context = UIGraphicsGetCurrentContext()!
-        context.setTextDrawingMode(.stroke)
-        // Draw clipping mask.
-        context.setLineWidth(strokeSize)
-        context.setLineJoin(.round)
-        UIColor.white.setStroke()
-        CTFrameDraw(frameRef, context)
-        // Save clipping mask.
-        let clippingMask = context.makeImage()
-        // Clear the content.
-        context.clear(rect)
-        // Draw stroke.
-        context.clip(to: rect, mask: clippingMask!)
-        context.translateBy(x: 0.0, y: rect.height)
-        context.scaleBy(x: 1.0, y: -1.0)
-        strokeColor.setFill()
-        UIRectFill(rect)
-        // Clean up and return image.
-        let image = context.makeImage()
-        UIGraphicsEndImageContext()
-        return image!
+        return UIGraphicsImageRenderer(size: rect.size, format: .preferred()).image(actions: { ctx in
+            let context = ctx.cgContext
+            context.setTextDrawingMode(.stroke)
+            // Draw clipping mask.
+            context.setLineWidth(strokeSize)
+            context.setLineJoin(.round)
+            UIColor.white.setStroke()
+            CTFrameDraw(frameRef, context)
+            // Save clipping mask.
+            let clippingMask = context.makeImage()
+            // Clear the content.
+            context.clear(rect)
+            // Draw stroke.
+            context.clip(to: rect, mask: clippingMask!)
+            context.translateBy(x: 0.0, y: rect.height)
+            context.scaleBy(x: 1.0, y: -1.0)
+            strokeColor.setFill()
+            UIRectFill(rect)
+        }).cgImage!
     }
     
     fileprivate func linearGradientImage(with rect: CGRect, fadeHead: Bool, fadeTail: Bool) -> CGImage {
-        // Create an opaque context.
-        UIGraphicsBeginImageContextWithOptions(rect.size, true, 0.0)
-        let context = UIGraphicsGetCurrentContext()!
-        // White background will mask opaque, black gradient will mask transparent.
-        UIColor.white.setFill()
-        UIRectFill(rect)
-        // Create gradient from white to black.
-        let locs : [CGFloat] = [0.0, 1.0]
-        let components : [CGFloat] = [1.0, 1.0, 0.0, 1.0]
-        let colorSpace = CGColorSpaceCreateDeviceGray()
-        let gradient = CGGradient(colorSpace: colorSpace, colorComponents: components, locations: locs, count: 2)!
-        // Draw head and/or tail gradient.
-        let fadeWidth: CGFloat = CGFloat(fminf(Float(rect.height * 2.0), floorf(Float(rect.width / 4.0))))
-        let minX: CGFloat = rect.minX
-        let maxX: CGFloat = rect.maxX
-        if fadeTail {
-            let startX: CGFloat = maxX - fadeWidth
-            let startPoint = CGPoint(x: startX, y: CGFloat(rect.midY))
-            let endPoint = CGPoint(x: maxX, y: CGFloat(rect.midY))
-            context.drawLinearGradient(gradient, start: startPoint, end: endPoint, options: [])
-        }
-        if fadeHead {
-            let startX: CGFloat = minX + fadeWidth
-            let startPoint = CGPoint(x: startX, y: CGFloat(rect.midY))
-            let endPoint = CGPoint(x: minX, y: CGFloat(rect.midY))
-            context.drawLinearGradient(gradient, start: startPoint, end: endPoint, options: [])
-        }
-        // Clean up and return image.
-        
-        let image = context.makeImage()
-        UIGraphicsEndImageContext()
-        
-        return image!
+        return UIGraphicsImageRenderer(size: rect.size, format: .preferred()).image(actions: { ctx in
+            let context = ctx.cgContext
+            UIColor.white.setFill()
+            UIRectFill(rect)
+            // Create gradient from white to black.
+            let locs : [CGFloat] = [0.0, 1.0]
+            let components : [CGFloat] = [1.0, 1.0, 0.0, 1.0]
+            let colorSpace = CGColorSpaceCreateDeviceGray()
+            let gradient = CGGradient(colorSpace: colorSpace, colorComponents: components, locations: locs, count: 2)!
+            // Draw head and/or tail gradient.
+            let fadeWidth: CGFloat = CGFloat(fminf(Float(rect.height * 2.0), floorf(Float(rect.width / 4.0))))
+            let minX: CGFloat = rect.minX
+            let maxX: CGFloat = rect.maxX
+            if fadeTail {
+                let startX: CGFloat = maxX - fadeWidth
+                let startPoint = CGPoint(x: startX, y: CGFloat(rect.midY))
+                let endPoint = CGPoint(x: maxX, y: CGFloat(rect.midY))
+                context.drawLinearGradient(gradient, start: startPoint, end: endPoint, options: [])
+            }
+            if fadeHead {
+                let startX: CGFloat = minX + fadeWidth
+                let startPoint = CGPoint(x: startX, y: CGFloat(rect.midY))
+                let endPoint = CGPoint(x: minX, y: CGFloat(rect.midY))
+                context.drawLinearGradient(gradient, start: startPoint, end: endPoint, options: [])
+            }
+        }).cgImage!
     }
     
     func CTLineBreakModeFromUILineBreakMode(_ lineBreakMode: NSLineBreakMode) -> CTLineBreakMode {
@@ -574,7 +518,7 @@ class THLabel: UILabel {
         case .byTruncatingHead: return .byTruncatingHead;
         case .byTruncatingTail: return .byTruncatingTail;
         case .byTruncatingMiddle: return .byTruncatingMiddle;
+        @unknown default: return .byWordWrapping;
         }
     }
 }
-

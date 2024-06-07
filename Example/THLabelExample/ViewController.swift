@@ -33,8 +33,7 @@ class ViewController: UIViewController {
         self.label3?.strokeSize = Constants.kStrokeSize;
         
         // Demonstrate fill gradient.
-        self.label4?.gradientStartColor = Constants.kGradientStartColor;
-        self.label4?.gradientEndColor = Constants.kGradientEndColor;
+        self.label4?.gradientColors = [Constants.kGradientStartColor, Constants.kGradientEndColor];
         
         // Demonstrate fade truncating.
         self.label5?.fadeTruncatingMode = THLabelFadeTruncatingMode.tail;
@@ -48,8 +47,7 @@ class ViewController: UIViewController {
         self.label6?.innerShadowBlur = Constants.kInnerShadowBlur;
         self.label6?.strokeColor = Constants.kStrokeColor;
         self.label6?.strokeSize = Constants.kStrokeSize;
-        self.label6?.gradientStartColor = Constants.kGradientStartColor;
-        self.label6?.gradientEndColor = Constants.kGradientEndColor;
+        self.label6?.gradientColors = [Constants.kGradientStartColor, Constants.kGradientEndColor];
     }
 }
 
